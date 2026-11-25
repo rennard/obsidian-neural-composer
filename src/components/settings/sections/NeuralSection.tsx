@@ -8,6 +8,7 @@ import {
 } from 'obsidian'
 import { useEffect, useRef, useState } from 'react'
 
+import { describeIndexingStatus } from '../../../core/rag/indexingStatus'
 import NeuralComposerPlugin from '../../../main'
 
 class FolderSuggest extends AbstractInputSuggest<TFolder> {
@@ -78,8 +79,38 @@ export const NeuralSection = ({ plugin }: { plugin: NeuralComposerPlugin }) => {
     checked: plugin.lightRagServerChecked,
   }))
 
+  // Indexing progress shown under "Resume indexing"; null shows nothing.
+  const [indexingText, setIndexingText] = useState<string | null>(null)
+  const refreshIndexingRef = useRef<() => void>(() => {})
+
   useEffect(() => {
     return plugin.addSettingsChangeListener(setLocalSettings)
+  }, [plugin])
+
+  // Poll the server for indexing progress while the settings are open.
+  useEffect(() => {
+    let cancelled = false
+    const refresh = () => {
+      plugin
+        .fetchIndexingStatus()
+        .then((status) => {
+          if (cancelled) return
+          setIndexingText(status ? describeIndexingStatus(status) : null)
+        })
+        .catch(() => {
+          if (cancelled) return
+          setIndexingText(
+            'Indexing status unavailable: the server is not responding.',
+          )
+        })
+    }
+    refreshIndexingRef.current = refresh
+    refresh()
+    const timer = window.setInterval(refresh, 5000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
   }, [plugin])
 
   // Subscribe to server version/status changes (populated by checkAndUpdateStatus)
@@ -651,6 +682,27 @@ export const NeuralSection = ({ plugin }: { plugin: NeuralComposerPlugin }) => {
         )
     } // end !useRemote && Platform.isDesktop (ontology / reranking / restart block)
 
+    // Resume indexing — a server-side request, so it applies to local and
+    // remote servers alike.
+    const resumeSetting = new Setting(container)
+      .setName('Resume indexing')
+      .setDesc(
+        'Continue processing notes that are still pending or were interrupted, for example by a server restart. Notes that failed are retried once.',
+      )
+      .addButton((button) =>
+        button.setButtonText('Resume indexing').onClick(() => {
+          void plugin.reprocessFailedDocuments().then(() => {
+            // Give the server a moment to pick the request up.
+            window.setTimeout(() => refreshIndexingRef.current(), 1500)
+          })
+        }),
+      )
+    // Progress line — filled in by the separate useEffect below.
+    resumeSetting.descEl.createDiv({
+      cls: 'nrlcmp-indexing-status',
+      attr: { 'data-nc-indexing-status': '' },
+    })
+
     // VISUALIZATION — Advanced env config moved to Advanced tab
     container.createEl('h4', { text: 'Visualization' })
 
@@ -701,6 +753,15 @@ export const NeuralSection = ({ plugin }: { plugin: NeuralComposerPlugin }) => {
       badge.classList.add('nc-version-badge--offline')
     }
   }, [serverInfo])
+
+  // Keep the indexing progress line current. Runs after every render because
+  // the element is recreated whenever the settings DOM above is rebuilt.
+  useEffect(() => {
+    const line = settingsRef.current?.querySelector<HTMLElement>(
+      '[data-nc-indexing-status]',
+    )
+    if (line) line.textContent = indexingText ?? ''
+  })
 
   return <div ref={settingsRef} />
 }

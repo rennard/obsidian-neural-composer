@@ -1,8 +1,9 @@
 import { minimatch } from 'minimatch'
-import { App, TFile, requestUrl, stripHeadingForLink } from 'obsidian'
+import { App, TFile, stripHeadingForLink } from 'obsidian'
 
 import { NeuralComposerSettings } from '../../settings/schema/setting.types'
 import { getChatModelClient } from '../llm/manager'
+import { RAGEngine } from '../rag/ragEngine'
 
 import {
   Insight,
@@ -38,9 +39,9 @@ export class InsightsServerUnreachableError extends Error {
 }
 
 /**
- * Retrieval and explanation for the insights sidebar. Talks to the LightRAG
- * server's `/query/data` endpoint, which returns retrieved context without
- * generating an answer.
+ * Retrieval and explanation for the insights sidebar. All communication with
+ * the LightRAG server goes through the plugin's shared RAGEngine, so the
+ * sidebar uses the same server address and headers as chat and ingestion.
  */
 export class InsightsService {
   private cache = new Map<string, Insight[]>()
@@ -48,6 +49,7 @@ export class InsightsService {
   constructor(
     private app: App,
     private getSettings: () => NeuralComposerSettings,
+    private getRAGEngine: () => Promise<RAGEngine>,
   ) {}
 
   /**
@@ -76,12 +78,7 @@ export class InsightsService {
     }
 
     const settings = this.getSettings()
-    // Content-Type is set through requestUrl's own `contentType` option:
-    // passing it as a header makes the request fail with net::ERR_FAILED.
-    const headers: Record<string, string> = {}
-    if (settings.lightRagApiKey) {
-      headers['X-API-Key'] = settings.lightRagApiKey
-    }
+    const engine = await this.getRAGEngine()
 
     const chunkTopK = Math.min(
       Math.max(limit, 1) * OVERFETCH_FACTOR,
@@ -92,26 +89,23 @@ export class InsightsService {
       configuredMode === 'naive' || configuredMode === 'bypass'
         ? 'mix'
         : configuredMode
-    const body =
-      mode === 'live'
-        ? { query, mode: 'naive', chunk_top_k: chunkTopK, enable_rerank: false }
-        : { query, mode: deepMode, chunk_top_k: chunkTopK }
-
-    // `throw: false` only covers HTTP error statuses; a refused connection
-    // still rejects, with an opaque message such as "net::ERR_FAILED".
-    const response = await requestUrl({
-      url: `${settings.lightRagServerUrl}/query/data`,
-      method: 'POST',
-      headers,
-      contentType: 'application/json',
-      body: JSON.stringify(body),
-      throw: false,
-    }).catch((error: unknown) => {
-      throw new InsightsServerUnreachableError(
-        settings.lightRagServerUrl,
-        error instanceof Error ? error.message : String(error),
+    const response = await engine
+      .queryData(
+        mode === 'live'
+          ? {
+              query,
+              mode: 'naive',
+              chunk_top_k: chunkTopK,
+              enable_rerank: false,
+            }
+          : { query, mode: deepMode, chunk_top_k: chunkTopK },
       )
-    })
+      .catch((error: unknown) => {
+        throw new InsightsServerUnreachableError(
+          settings.lightRagServerUrl,
+          error instanceof Error ? error.message : String(error),
+        )
+      })
     if (response.status === 404) {
       throw new Error(
         'This LightRAG server has no /query/data endpoint. Update it with: pip install -U "lightrag-hku[api]"',
@@ -132,20 +126,8 @@ export class InsightsService {
 
   /** Whether the LightRAG server currently answers its health check. */
   async isServerOnline(): Promise<boolean> {
-    const settings = this.getSettings()
-    try {
-      const response = await requestUrl({
-        url: `${settings.lightRagServerUrl}/health`,
-        method: 'GET',
-        headers: settings.lightRagApiKey
-          ? { 'X-API-Key': settings.lightRagApiKey }
-          : {},
-        throw: false,
-      })
-      return response.status === 200
-    } catch {
-      return false
-    }
+    const engine = await this.getRAGEngine()
+    return engine.isServerOnline()
   }
 
   clearCache(): void {

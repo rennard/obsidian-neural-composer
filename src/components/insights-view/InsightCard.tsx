@@ -13,6 +13,8 @@ import {
 } from '../../utils/icons'
 import DotLoader from '../common/DotLoader'
 
+import InsightMarkdown from './InsightMarkdown'
+
 type WhyState =
   | { status: 'idle' }
   | { status: 'loading'; contextKey: string }
@@ -130,12 +132,12 @@ export default function InsightCard({
         </div>
       </div>
 
-      <div
+      <InsightMarkdown
         className={`nrlcmp-insight-card__passage${expanded ? '' : ' nrlcmp-insight-card__passage--clamped'}`}
+        content={expanded && hasMore ? insight.content : insight.focus}
+        sourcePath={insight.path}
         onClick={onJump}
-      >
-        {expanded && hasMore ? insight.content : insight.focus}
-      </div>
+      />
 
       {expanded && (
         <div className="nrlcmp-insight-card__why">

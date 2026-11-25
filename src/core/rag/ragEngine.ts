@@ -99,6 +99,49 @@ export class RAGEngine {
     return headers
   }
 
+  /**
+   * Retrieves context for a query without generating an answer, through
+   * LightRAG's `/query/data` endpoint. Rejects if the server cannot be
+   * reached; HTTP errors are returned for the caller to interpret.
+   */
+  async queryData(params: {
+    query: string
+    mode: string
+    chunk_top_k?: number
+    enable_rerank?: boolean
+  }): Promise<{ status: number; text: string; json: unknown }> {
+    const response = await requestUrl({
+      url: `${this.settings.lightRagServerUrl}/query/data`,
+      method: 'POST',
+      headers: this.getLightRagHeaders(),
+      body: JSON.stringify(params),
+      throw: false,
+    })
+    // `response.json` throws on a non-JSON body (e.g. an HTML error page).
+    let json: unknown = null
+    try {
+      json = response.json as unknown
+    } catch {
+      json = null
+    }
+    return { status: response.status, text: response.text, json }
+  }
+
+  /** Whether the LightRAG server currently answers its health check. */
+  async isServerOnline(): Promise<boolean> {
+    try {
+      const response = await requestUrl({
+        url: `${this.settings.lightRagServerUrl}/health`,
+        method: 'GET',
+        headers: this.getLightRagHeaders(),
+        throw: false,
+      })
+      return response.status === 200
+    } catch {
+      return false
+    }
+  }
+
   // Correct: Returns Promise<void> directly without async/await overhead
   updateVaultIndex(
     _options: { reindexAll: boolean } = { reindexAll: false },

@@ -28,6 +28,7 @@ import { InsightsStore } from './core/insights/insightsStore'
 import { McpManager } from './core/mcp/mcpManager'
 import { DocIndexService } from './core/rag/docIndexService'
 import { FileExplorerDecorator } from './core/rag/fileExplorerDecorator'
+import { IndexingStatus, parseIndexingStatus } from './core/rag/indexingStatus'
 import { RAGEngine } from './core/rag/ragEngine'
 import { DatabaseManager } from './database/DatabaseManager'
 import { VectorManager } from './database/modules/vector/VectorManager'
@@ -1445,9 +1446,13 @@ export default class NeuralComposerPlugin extends Plugin {
           // macOS / Linux: kill whatever is listening on the server port.
           // This handles orphaned processes started outside the plugin (e.g.
           // manually, or from a previous Obsidian session).
+          // -sTCP:LISTEN matters: without it lsof also returns every client
+          // with a socket on the port, including Obsidian's own Network
+          // Service process, and killing that leaves requestUrl failing with
+          // net::ERR_FAILED until Obsidian is restarted.
           const port = this.getServerPort()
           this._nodeChildProcess.execSync(
-            `bash -c "lsof -ti tcp:${port} | xargs kill -9 2>/dev/null || true"`,
+            `bash -c "lsof -ti tcp:${port} -sTCP:LISTEN | xargs kill -9 2>/dev/null || true"`,
             { stdio: 'ignore' },
           )
         }
@@ -1588,6 +1593,15 @@ export default class NeuralComposerPlugin extends Plugin {
         }
 
         envContent += `LLM_MODEL=${llmModelObj.model}\n`
+
+        // Anthropic models are served through Anthropic's OpenAI-compatible
+        // endpoint, which rejects response_format={"type":"json_object"}
+        // ("Input should be 'json_schema'"). LightRAG's own fallback does not
+        // recognise that wording, so every graph query fails with HTTP 500 at
+        // keyword extraction unless the constraint is switched off.
+        if (llmProvider.id === 'anthropic') {
+          envContent += `KEYWORD_EXTRACTION_JSON_MODE=none\n`
+        }
       }
 
       // Embeddings (Smart Mapping)
@@ -1780,7 +1794,7 @@ export default class NeuralComposerPlugin extends Plugin {
       })
       if (response.status < 400) {
         new Notice(
-          'Re-processing failed documents — check the graph view in a few minutes.',
+          'Indexing resumed — pending, interrupted and failed notes are being processed.',
         )
       } else {
         new Notice(`Reprocess request failed (HTTP ${response.status})`)
@@ -1789,6 +1803,37 @@ export default class NeuralComposerPlugin extends Plugin {
       console.error('reprocessFailedDocuments error:', e)
       new Notice('Could not reach the LightRAG server.')
     }
+  }
+
+  /**
+   * Indexing progress as reported by the server. Resolves to null when the
+   * server answers but has no usable status (older LightRAG versions), and
+   * rejects when the server does not respond at all.
+   */
+  public async fetchIndexingStatus(): Promise<IndexingStatus | null> {
+    const base = this.settings.lightRagServerUrl
+    const headers: Record<string, string> = this.settings.lightRagApiKey
+      ? { 'X-API-Key': this.settings.lightRagApiKey }
+      : {}
+    const get = async (path: string): Promise<unknown> => {
+      const response = await requestUrl({
+        url: `${base}${path}`,
+        method: 'GET',
+        headers,
+        throw: false,
+      })
+      if (response.status >= 400) return null
+      try {
+        return response.json as unknown
+      } catch {
+        return null
+      }
+    }
+    const [counts, pipeline] = await Promise.all([
+      get('/documents/status_counts'),
+      get('/documents/pipeline_status'),
+    ])
+    return parseIndexingStatus(counts, pipeline)
   }
 
   private isPortInUse(port: number): Promise<boolean> {
@@ -2043,7 +2088,11 @@ export default class NeuralComposerPlugin extends Plugin {
   getInsightsService(): InsightsService {
     if (!this.insightsService) {
       // Reads settings through a getter so it always sees the latest values.
-      this.insightsService = new InsightsService(this.app, () => this.settings)
+      this.insightsService = new InsightsService(
+        this.app,
+        () => this.settings,
+        () => this.getRAGEngine(),
+      )
     }
     return this.insightsService
   }

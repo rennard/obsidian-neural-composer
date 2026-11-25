@@ -188,6 +188,8 @@ function InsightList({
   error,
   emptyText,
   initialCount,
+  showAll,
+  onShowAll,
   isDeep,
   onDigDeeper,
   renderCard,
@@ -199,11 +201,13 @@ function InsightList({
   error: string | null
   emptyText: string
   initialCount: number
+  /** Whether the passages beyond `initialCount` are shown as well. */
+  showAll: boolean
+  onShowAll: () => void
   isDeep: boolean
   onDigDeeper?: () => void
   renderCard: (insight: Insight) => React.ReactNode
 }) {
-  const [showAll, setShowAll] = useState(false)
   const visible = showAll ? items : items.slice(0, initialCount)
   const hiddenCount = items.length - visible.length
 
@@ -218,7 +222,7 @@ function InsightList({
             </span>
           )}
         </div>
-        {loading && <DotLoader />}
+        {loading && items.length > 0 && <DotLoader />}
         {onDigDeeper &&
           (isDeep ? (
             <span className="nrlcmp-insights-section__badge">Graph</span>
@@ -240,6 +244,13 @@ function InsightList({
         </div>
       )}
 
+      {!error && items.length === 0 && loading && (
+        <div className="nrlcmp-insights-message">
+          Looking for related passages
+          <DotLoader />
+        </div>
+      )}
+
       {!error && items.length === 0 && !loading && (
         <div className="nrlcmp-insights-message">{emptyText}</div>
       )}
@@ -251,10 +262,7 @@ function InsightList({
       </div>
 
       {hiddenCount > 0 && (
-        <button
-          className="nrlcmp-insights-section__more"
-          onClick={() => setShowAll(true)}
-        >
+        <button className="nrlcmp-insights-section__more" onClick={onShowAll}>
           Show {hiddenCount} more
         </button>
       )}
@@ -279,6 +287,12 @@ export default function Insights() {
   // query so moving to another section drops back to cheap vector search.
   const [deepSectionKey, setDeepSectionKey] = useState<string | null>(null)
   const [deepNoteKey, setDeepNoteKey] = useState<string | null>(null)
+  // Lists the user expanded with "Show more". Tied to the list's identity so
+  // moving to another section or note collapses them again.
+  const [expandedSectionList, setExpandedSectionList] = useState<string | null>(
+    null,
+  )
+  const [expandedNoteList, setExpandedNoteList] = useState<string | null>(null)
 
   // --- Follow the active note ---
   useEffect(() => {
@@ -349,6 +363,9 @@ export default function Insights() {
   const section = activeContext?.section ?? null
   const noteQuery = activeContext?.noteQuery ?? null
   const noteQueryKey = noteQuery === null ? null : hashString(noteQuery)
+  const sectionListKey = `section:${notePath}:${section?.key ?? ''}`
+  const noteListKey = `note:${notePath}`
+  const sectionShowAll = expandedSectionList === sectionListKey
 
   const sectionResults = useInsightResults({
     service,
@@ -373,7 +390,7 @@ export default function Insights() {
     store.get(notePath ?? ''),
   )
 
-  const { hideLinkedNotes, excludePatterns } = options
+  const { hideLinkedNotes, excludePatterns, maxResults } = options
   const { sectionItems, noteItems } = useMemo((): {
     sectionItems: Insight[]
     noteItems: Insight[]
@@ -388,8 +405,14 @@ export default function Insights() {
       excluded,
       rules,
     )
-    // A passage shown for the section is not repeated under the note.
-    forSection.forEach((insight) => excluded.add(insight.key))
+    // A passage shown for the section is not repeated under the note. Only
+    // the section's visible cards count: both queries often rank the same
+    // passages, and leaving out the ones still behind "Show more" as well
+    // could empty the note list while nothing takes their place on screen.
+    const shownForSection = sectionShowAll
+      ? forSection
+      : forSection.slice(0, maxResults)
+    shownForSection.forEach((insight) => excluded.add(insight.key))
     const forNote = service.filter(noteResults.items, notePath, excluded, rules)
     return { sectionItems: forSection, noteItems: forNote }
   }, [
@@ -400,6 +423,8 @@ export default function Insights() {
     noteResults.items,
     hideLinkedNotes,
     excludePatterns,
+    maxResults,
+    sectionShowAll,
   ])
 
   // --- Actions ---
@@ -578,7 +603,7 @@ export default function Insights() {
       {!serverDown && (
         <>
           <InsightList
-            key={`section:${notePath}:${section?.key ?? ''}`}
+            key={sectionListKey}
             title="This section"
             subtitle={section?.label}
             items={sectionItems}
@@ -590,6 +615,8 @@ export default function Insights() {
                 : 'Nothing related to this section.'
             }
             initialCount={options.maxResults}
+            showAll={sectionShowAll}
+            onShowAll={() => setExpandedSectionList(sectionListKey)}
             isDeep={section !== null && deepSectionKey === section.key}
             onDigDeeper={
               section === null
@@ -602,7 +629,7 @@ export default function Insights() {
           />
 
           <InsightList
-            key={`note:${notePath}`}
+            key={noteListKey}
             title="This note"
             items={noteItems}
             loading={noteResults.loading || contextPending}
@@ -613,6 +640,8 @@ export default function Insights() {
                 : 'Nothing related to this note.'
             }
             initialCount={options.maxResults}
+            showAll={expandedNoteList === noteListKey}
+            onShowAll={() => setExpandedNoteList(noteListKey)}
             isDeep={noteQueryKey !== null && deepNoteKey === noteQueryKey}
             onDigDeeper={
               noteQueryKey === null
