@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from 'react'
@@ -174,7 +175,7 @@ function useInsightResults({
   return {
     items: loaded.items,
     loading: !isCurrent,
-    error: isCurrent && !loaded.unreachable ? loaded.error : null,
+    error: isCurrent ? loaded.error : null,
     unreachable: isCurrent && loaded.unreachable,
   }
 }
@@ -414,16 +415,25 @@ export default function Insights() {
   const canStartServer = Platform.isDesktop && !plugin.isRemoteServer()
 
   // The server is often still starting when Obsidian opens. Keep checking
-  // and load the passages as soon as it answers.
+  // and load the passages as soon as it answers. If it answers but the
+  // query still cannot get through, retry once and then stop, so a request
+  // problem does not turn into an endless loop.
+  const onlineRetries = useRef(0)
+  const resultsSettled = !sectionResults.loading && !noteResults.loading
   useEffect(() => {
-    if (!serverDown) return
+    if (!serverDown) {
+      if (resultsSettled) onlineRetries.current = 0
+      return
+    }
     const interval = window.setInterval(() => {
       void service.isServerOnline().then((online) => {
-        if (online) handleRefresh()
+        if (!online || onlineRetries.current >= 1) return
+        onlineRetries.current += 1
+        handleRefresh()
       })
     }, SERVER_POLL_INTERVAL_MS)
     return () => window.clearInterval(interval)
-  }, [serverDown, service, handleRefresh])
+  }, [serverDown, resultsSettled, service, handleRefresh])
 
   const handleJump = useCallback(
     async (insight: Insight) => {
@@ -547,8 +557,11 @@ export default function Insights() {
 
       {serverDown && (
         <div className="nrlcmp-insights-message nrlcmp-insights-message--error">
-          The LightRAG server is not responding at {settings.lightRagServerUrl}.
-          Passages will load as soon as it is running.
+          Could not reach the LightRAG server at {settings.lightRagServerUrl}.
+          Passages will load as soon as it responds.
+          <div className="nrlcmp-insights-message__detail">
+            {sectionResults.error ?? noteResults.error}
+          </div>
           {canStartServer && (
             <div className="nrlcmp-insights-message__detail">
               <button

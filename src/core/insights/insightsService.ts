@@ -27,8 +27,12 @@ You will receive the text they are currently reading or writing, and one passage
 
 /** The LightRAG server could not be reached at all (as opposed to erroring). */
 export class InsightsServerUnreachableError extends Error {
-  constructor(public serverUrl: string) {
-    super(`No response from the LightRAG server at ${serverUrl}.`)
+  constructor(
+    public serverUrl: string,
+    /** The underlying network error, for diagnosis. */
+    public detail: string,
+  ) {
+    super(`No response from the LightRAG server at ${serverUrl}: ${detail}`)
     this.name = 'InsightsServerUnreachableError'
   }
 }
@@ -72,9 +76,9 @@ export class InsightsService {
     }
 
     const settings = this.getSettings()
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    }
+    // Content-Type is set through requestUrl's own `contentType` option:
+    // passing it as a header makes the request fail with net::ERR_FAILED.
+    const headers: Record<string, string> = {}
     if (settings.lightRagApiKey) {
       headers['X-API-Key'] = settings.lightRagApiKey
     }
@@ -99,10 +103,14 @@ export class InsightsService {
       url: `${settings.lightRagServerUrl}/query/data`,
       method: 'POST',
       headers,
+      contentType: 'application/json',
       body: JSON.stringify(body),
       throw: false,
-    }).catch(() => {
-      throw new InsightsServerUnreachableError(settings.lightRagServerUrl)
+    }).catch((error: unknown) => {
+      throw new InsightsServerUnreachableError(
+        settings.lightRagServerUrl,
+        error instanceof Error ? error.message : String(error),
+      )
     })
     if (response.status === 404) {
       throw new Error(
