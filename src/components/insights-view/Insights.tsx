@@ -1,4 +1,4 @@
-import { App, MarkdownView, Menu, Notice, TFile } from 'obsidian'
+import { App, MarkdownView, Menu, Notice, Platform, TFile } from 'obsidian'
 import {
   useCallback,
   useEffect,
@@ -19,6 +19,7 @@ import {
 } from '../../core/insights/insightsQuery'
 import {
   InsightRetrievalMode,
+  InsightsServerUnreachableError,
   InsightsService,
 } from '../../core/insights/insightsService'
 import { RefreshCw } from '../../utils/icons'
@@ -43,9 +44,12 @@ type LoadedResults = {
   scope: string
   items: Insight[]
   error: string | null
+  unreachable: boolean
 }
 
 type InsertKind = 'link' | 'quote' | 'embed'
+
+const SERVER_POLL_INTERVAL_MS = 4000
 
 /**
  * The markdown view the sidebar should follow. Falls back to the most
@@ -122,7 +126,13 @@ function useInsightResults({
   limit: number
   scope: string | null
   nonce: number
-}): { items: Insight[]; loading: boolean; error: string | null } {
+}): {
+  items: Insight[]
+  loading: boolean
+  error: string | null
+  /** The server did not respond at all; reported once for the whole view. */
+  unreachable: boolean
+} {
   const requestKey =
     query === null || scope === null
       ? null
@@ -136,7 +146,7 @@ function useInsightResults({
       .retrieve({ query, mode, limit })
       .then((items) => {
         if (cancelled) return
-        setLoaded({ requestKey, scope, items, error: null })
+        setLoaded({ requestKey, scope, items, error: null, unreachable: false })
       })
       .catch((error: unknown) => {
         if (cancelled) return
@@ -146,6 +156,7 @@ function useInsightResults({
           scope,
           items: [],
           error: error instanceof Error ? error.message : String(error),
+          unreachable: error instanceof InsightsServerUnreachableError,
         })
       })
     return () => {
@@ -153,15 +164,18 @@ function useInsightResults({
     }
   }, [service, query, mode, limit, scope, requestKey])
 
-  if (requestKey === null) return { items: [], loading: false, error: null }
+  if (requestKey === null) {
+    return { items: [], loading: false, error: null, unreachable: false }
+  }
   if (loaded === null || loaded.scope !== scope) {
-    return { items: [], loading: true, error: null }
+    return { items: [], loading: true, error: null, unreachable: false }
   }
   const isCurrent = loaded.requestKey === requestKey
   return {
     items: loaded.items,
     loading: !isCurrent,
-    error: isCurrent ? loaded.error : null,
+    error: isCurrent && !loaded.unreachable ? loaded.error : null,
+    unreachable: isCurrent && loaded.unreachable,
   }
 }
 
@@ -220,8 +234,7 @@ function InsightList({
 
       {error && (
         <div className="nrlcmp-insights-message nrlcmp-insights-message--error">
-          Could not retrieve passages. Check that the LightRAG server is
-          running.
+          Could not retrieve passages.
           <div className="nrlcmp-insights-message__detail">{error}</div>
         </div>
       )}
@@ -391,6 +404,22 @@ export default function Insights() {
     setRefreshNonce((n) => n + 1)
   }, [service])
 
+  // --- Server availability ---
+  const serverDown = sectionResults.unreachable || noteResults.unreachable
+  const canStartServer = Platform.isDesktop && !plugin.isRemoteServer()
+
+  // The server is often still starting when Obsidian opens. Keep checking
+  // and load the passages as soon as it answers.
+  useEffect(() => {
+    if (!serverDown) return
+    const interval = window.setInterval(() => {
+      void service.isServerOnline().then((online) => {
+        if (online) handleRefresh()
+      })
+    }, SERVER_POLL_INTERVAL_MS)
+    return () => window.clearInterval(interval)
+  }, [serverDown, service, handleRefresh])
+
   const handleJump = useCallback(
     async (insight: Insight) => {
       const file = service.resolveFile(insight.path)
@@ -511,44 +540,71 @@ export default function Insights() {
         </div>
       )}
 
-      <InsightList
-        key={`section:${notePath}:${section?.key ?? ''}`}
-        title="This section"
-        subtitle={section?.label}
-        items={sectionItems}
-        loading={sectionResults.loading || contextPending}
-        error={sectionResults.error}
-        emptyText={
-          section === null
-            ? 'Not enough text here yet.'
-            : 'Nothing related to this section.'
-        }
-        initialCount={options.maxResults}
-        isDeep={section !== null && deepSectionKey === section.key}
-        onDigDeeper={
-          section === null ? undefined : () => setDeepSectionKey(section.key)
-        }
-        renderCard={(insight) => renderCard(insight, section?.query ?? null)}
-      />
+      {serverDown && (
+        <div className="nrlcmp-insights-message nrlcmp-insights-message--error">
+          The LightRAG server is not responding at {settings.lightRagServerUrl}.
+          Passages will load as soon as it is running.
+          {canStartServer && (
+            <div className="nrlcmp-insights-message__detail">
+              <button
+                className="nrlcmp-insights-section__action"
+                onClick={() => void plugin.startLightRagServer()}
+              >
+                Start server
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
-      <InsightList
-        key={`note:${notePath}`}
-        title="This note"
-        items={noteItems}
-        loading={noteResults.loading || contextPending}
-        error={noteResults.error}
-        emptyText={
-          noteQuery === null
-            ? 'Not enough text in this note yet.'
-            : 'Nothing related to this note.'
-        }
-        initialCount={options.maxResults}
-        isDeep={noteQueryKey !== null && deepNoteKey === noteQueryKey}
-        onDigDeeper={
-          noteQueryKey === null ? undefined : () => setDeepNoteKey(noteQueryKey)
-        }
-        renderCard={(insight) => renderCard(insight, noteQuery)}
-      />
+      {!serverDown && (
+        <>
+          <InsightList
+            key={`section:${notePath}:${section?.key ?? ''}`}
+            title="This section"
+            subtitle={section?.label}
+            items={sectionItems}
+            loading={sectionResults.loading || contextPending}
+            error={sectionResults.error}
+            emptyText={
+              section === null
+                ? 'Not enough text here yet.'
+                : 'Nothing related to this section.'
+            }
+            initialCount={options.maxResults}
+            isDeep={section !== null && deepSectionKey === section.key}
+            onDigDeeper={
+              section === null
+                ? undefined
+                : () => setDeepSectionKey(section.key)
+            }
+            renderCard={(insight) =>
+              renderCard(insight, section?.query ?? null)
+            }
+          />
+
+          <InsightList
+            key={`note:${notePath}`}
+            title="This note"
+            items={noteItems}
+            loading={noteResults.loading || contextPending}
+            error={noteResults.error}
+            emptyText={
+              noteQuery === null
+                ? 'Not enough text in this note yet.'
+                : 'Nothing related to this note.'
+            }
+            initialCount={options.maxResults}
+            isDeep={noteQueryKey !== null && deepNoteKey === noteQueryKey}
+            onDigDeeper={
+              noteQueryKey === null
+                ? undefined
+                : () => setDeepNoteKey(noteQueryKey)
+            }
+            renderCard={(insight) => renderCard(insight, noteQuery)}
+          />
+        </>
+      )}
 
       {noteState.dismissed.length > 0 && (
         <div className="nrlcmp-insights-footer">

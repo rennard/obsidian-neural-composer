@@ -11,6 +11,7 @@ import {
   parseQueryDataChunks,
   pickFocusParagraph,
   stripFrontmatter,
+  stripInlineMarkdown,
   withBlockId,
 } from './insightsQuery'
 
@@ -55,6 +56,36 @@ describe('extractHeadings', () => {
       'Next steps',
     ])
     expect(headings.map((h) => h.level)).toEqual([1, 2, 2])
+  })
+})
+
+describe('stripInlineMarkdown', () => {
+  it('removes emphasis, code and link syntax', () => {
+    expect(stripInlineMarkdown('**general thoughts**')).toBe('general thoughts')
+    expect(stripInlineMarkdown('An *italic* and _other_ word')).toBe(
+      'An italic and other word',
+    )
+    expect(stripInlineMarkdown('Use `code` and ==marks==')).toBe(
+      'Use code and marks',
+    )
+    expect(stripInlineMarkdown('See [[Target|alias]] and [[Plain]]')).toBe(
+      'See alias and Plain',
+    )
+    expect(stripInlineMarkdown('A [link](https://example.com) here')).toBe(
+      'A link here',
+    )
+  })
+
+  it('leaves ordinary punctuation alone', () => {
+    expect(stripInlineMarkdown('snake_case_name and 2 * 3')).toBe(
+      'snake_case_name and 2 * 3',
+    )
+  })
+
+  it('is applied to extracted headings', () => {
+    expect(extractHeadings(['## **Bold** heading'])[0].heading).toBe(
+      'Bold heading',
+    )
   })
 })
 

@@ -125,6 +125,17 @@ export function frontmatterLineCount(content: string): number {
   return content.slice(0, content.length - body.length).split('\n').length - 1
 }
 
+/** Reduces inline markdown in a heading to the text a reader sees. */
+export function stripInlineMarkdown(text: string): string {
+  return text
+    .replace(/!?\[\[(?:[^\]|]*\|)?([^\]]+)\]\]/g, '$1')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/(\*\*|__|~~|==)(.+?)\1/g, '$2')
+    .replace(/(^|[^\w*])[*_]([^*_]+)[*_](?=$|[^\w*])/g, '$1$2')
+    .replace(/`([^`]+)`/g, '$1')
+    .trim()
+}
+
 /** Parses ATX headings, ignoring anything inside fenced code blocks. */
 export function extractHeadings(lines: string[]): NoteHeading[] {
   const headings: NoteHeading[] = []
@@ -141,7 +152,11 @@ export function extractHeadings(lines: string[]): NoteHeading[] {
     if (fence !== null) continue
     const match = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line)
     if (match) {
-      headings.push({ heading: match[2], level: match[1].length, line: i })
+      headings.push({
+        heading: stripInlineMarkdown(match[2]),
+        level: match[1].length,
+        line: i,
+      })
     }
   }
   return headings

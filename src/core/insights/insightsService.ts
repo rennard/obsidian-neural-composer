@@ -25,6 +25,14 @@ const WHY_SYSTEM_PROMPT = `You help a writer see how a passage from their own no
 
 You will receive the text they are currently reading or writing, and one passage retrieved from another of their notes. In one or two short sentences, say specifically why the passage matters for the current text: what it adds, supports, complicates, or contradicts. Refer to concrete ideas from both. Do not summarise the passage, do not start with "This passage", and do not use markdown.`
 
+/** The LightRAG server could not be reached at all (as opposed to erroring). */
+export class InsightsServerUnreachableError extends Error {
+  constructor(public serverUrl: string) {
+    super(`No response from the LightRAG server at ${serverUrl}.`)
+    this.name = 'InsightsServerUnreachableError'
+  }
+}
+
 /**
  * Retrieval and explanation for the insights sidebar. Talks to the LightRAG
  * server's `/query/data` endpoint, which returns retrieved context without
@@ -85,12 +93,16 @@ export class InsightsService {
         ? { query, mode: 'naive', chunk_top_k: chunkTopK, enable_rerank: false }
         : { query, mode: deepMode, chunk_top_k: chunkTopK }
 
+    // `throw: false` only covers HTTP error statuses; a refused connection
+    // still rejects, with an opaque message such as "net::ERR_FAILED".
     const response = await requestUrl({
       url: `${settings.lightRagServerUrl}/query/data`,
       method: 'POST',
       headers,
       body: JSON.stringify(body),
       throw: false,
+    }).catch(() => {
+      throw new InsightsServerUnreachableError(settings.lightRagServerUrl)
     })
     if (response.status === 404) {
       throw new Error(
@@ -108,6 +120,24 @@ export class InsightsService {
       if (!oldest.done) this.cache.delete(oldest.value)
     }
     return insights
+  }
+
+  /** Whether the LightRAG server currently answers its health check. */
+  async isServerOnline(): Promise<boolean> {
+    const settings = this.getSettings()
+    try {
+      const response = await requestUrl({
+        url: `${settings.lightRagServerUrl}/health`,
+        method: 'GET',
+        headers: settings.lightRagApiKey
+          ? { 'X-API-Key': settings.lightRagApiKey }
+          : {},
+        throw: false,
+      })
+      return response.status === 200
+    } catch {
+      return false
+    }
   }
 
   clearCache(): void {
