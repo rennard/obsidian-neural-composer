@@ -372,6 +372,7 @@ export default function Insights() {
     store.get(notePath ?? ''),
   )
 
+  const { hideLinkedNotes, excludePatterns } = options
   const { sectionItems, noteItems } = useMemo((): {
     sectionItems: Insight[]
     noteItems: Insight[]
@@ -379,21 +380,25 @@ export default function Insights() {
     if (notePath === null) return { sectionItems: [], noteItems: [] }
     const excluded = new Set<string>(noteState.dismissed)
     noteState.pins.forEach((pin) => excluded.add(pin.key))
-    const forSection = service.filter(sectionResults.items, notePath, excluded)
+    const rules = { hideLinkedNotes, excludePatterns }
+    const forSection = service.filter(
+      sectionResults.items,
+      notePath,
+      excluded,
+      rules,
+    )
     // A passage shown for the section is not repeated under the note.
     forSection.forEach((insight) => excluded.add(insight.key))
-    const forNote = service.filter(noteResults.items, notePath, excluded)
+    const forNote = service.filter(noteResults.items, notePath, excluded, rules)
     return { sectionItems: forSection, noteItems: forNote }
-    // The hide-linked and exclude settings are read inside service.filter,
-    // so they are listed below to re-filter when they change.
   }, [
     service,
     notePath,
     noteState,
     sectionResults.items,
     noteResults.items,
-    options.hideLinkedNotes,
-    options.excludePatterns,
+    hideLinkedNotes,
+    excludePatterns,
   ])
 
   // --- Actions ---

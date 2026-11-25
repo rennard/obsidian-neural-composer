@@ -155,17 +155,19 @@ export class InsightsService {
   }
 
   /**
-   * Applies the user's visibility rules for the note at `currentPath`:
-   * drops the note itself, excluded folders, notes it already links to or is
-   * linked from, and any explicitly excluded keys (pins and dismissals).
+   * Applies the visibility rules for the note at `currentPath`: drops the
+   * note itself, excluded folders, notes it already links to or is linked
+   * from, and any explicitly excluded keys (pins and dismissals).
    */
   filter(
     insights: Insight[],
     currentPath: string,
     excludedKeys: Set<string>,
+    {
+      hideLinkedNotes,
+      excludePatterns,
+    }: { hideLinkedNotes: boolean; excludePatterns: string[] },
   ): Insight[] {
-    const { hideLinkedNotes, excludePatterns } =
-      this.getSettings().insightsOptions
     const linked = hideLinkedNotes
       ? this.getLinkedPaths(currentPath)
       : new Set<string>()
