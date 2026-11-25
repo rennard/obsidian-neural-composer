@@ -48,6 +48,8 @@ import MessageSquare_ from 'lucide-react/dist/esm/icons/message-square'
 import Pencil_ from 'lucide-react/dist/esm/icons/pencil'
 import Pickaxe_ from 'lucide-react/dist/esm/icons/pickaxe'
 import PickaxeIcon_ from 'lucide-react/dist/esm/icons/pickaxe'
+import Pin_ from 'lucide-react/dist/esm/icons/pin'
+import PinOff_ from 'lucide-react/dist/esm/icons/pin-off'
 import Play_ from 'lucide-react/dist/esm/icons/play'
 import Plus_ from 'lucide-react/dist/esm/icons/plus'
 import RefreshCw_ from 'lucide-react/dist/esm/icons/refresh-cw'
@@ -101,6 +103,8 @@ export const MessageSquare: LucideIcon = MessageSquare_ as LucideIcon
 export const Pencil: LucideIcon = Pencil_ as LucideIcon
 export const Pickaxe: LucideIcon = Pickaxe_ as LucideIcon
 export const PickaxeIcon: LucideIcon = PickaxeIcon_ as LucideIcon
+export const Pin: LucideIcon = Pin_ as LucideIcon
+export const PinOff: LucideIcon = PinOff_ as LucideIcon
 export const Play: LucideIcon = Play_ as LucideIcon
 export const Plus: LucideIcon = Plus_ as LucideIcon
 export const RefreshCw: LucideIcon = RefreshCw_ as LucideIcon

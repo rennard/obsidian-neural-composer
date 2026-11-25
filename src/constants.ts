@@ -4,6 +4,7 @@ import { LLMProvider, LLMProviderType } from './types/provider.types'
 
 export const CHAT_VIEW_TYPE = 'neuralcmp-chat-view'
 export const APPLY_VIEW_TYPE = 'neuralcmp-apply-view'
+export const INSIGHTS_VIEW_TYPE = 'neuralcmp-insights-view'
 
 export const PGLITE_DB_PATH = '.neuralcmp_db.tar.gz'
 

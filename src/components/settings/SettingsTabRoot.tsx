@@ -17,6 +17,7 @@ import {
 
 import { ChatSection } from './sections/ChatSection'
 import { HelpSection } from './sections/HelpSection'
+import { InsightsSection } from './sections/InsightsSection'
 import { McpSection } from './sections/McpSection'
 import { ModelsSection } from './sections/ModelsSection'
 import { NeuralSection } from './sections/NeuralSection'
@@ -431,7 +432,13 @@ function TabContent({
         </>,
       )
     case 'graph':
-      return wrap('Graph & Vault', <NeuralSection plugin={plugin} />)
+      return wrap(
+        'Graph & Vault',
+        <>
+          <NeuralSection plugin={plugin} />
+          <InsightsSection />
+        </>,
+      )
     case 'tools':
       return wrap('Tools', <McpSection app={app} plugin={plugin} />, '· MCP')
     case 'advanced':

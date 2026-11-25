@@ -9,6 +9,7 @@ import {
   TFile,
   TFolder,
   WorkspaceLeaf,
+  normalizePath,
   requestUrl,
   setTooltip,
 } from 'obsidian'
@@ -17,13 +18,20 @@ import { ApplyView } from './ApplyView'
 import { ChatView } from './ChatView'
 import { ChatProps } from './components/chat-view/Chat'
 import { ConfirmModal } from './components/modals/ConfirmModal'
-import { APPLY_VIEW_TYPE, CHAT_VIEW_TYPE } from './constants'
+import {
+  APPLY_VIEW_TYPE,
+  CHAT_VIEW_TYPE,
+  INSIGHTS_VIEW_TYPE,
+} from './constants'
+import { InsightsService } from './core/insights/insightsService'
+import { InsightsStore } from './core/insights/insightsStore'
 import { McpManager } from './core/mcp/mcpManager'
 import { DocIndexService } from './core/rag/docIndexService'
 import { FileExplorerDecorator } from './core/rag/fileExplorerDecorator'
 import { RAGEngine } from './core/rag/ragEngine'
 import { DatabaseManager } from './database/DatabaseManager'
 import { VectorManager } from './database/modules/vector/VectorManager'
+import { InsightsView } from './InsightsView'
 import {
   NeuralComposerSettings,
   NeuralComposerSettingsSchema,
@@ -225,6 +233,8 @@ export default class NeuralComposerPlugin extends Plugin {
   mcpManager: McpManager | null = null
   dbManager: DatabaseManager | null = null
   ragEngine: RAGEngine | null = null
+  insightsStore: InsightsStore
+  private insightsService: InsightsService | null = null
 
   private dbManagerInitPromise: Promise<DatabaseManager> | null = null
   private ragEngineInitPromise: Promise<RAGEngine> | null = null
@@ -369,6 +379,40 @@ export default class NeuralComposerPlugin extends Plugin {
 
     this.registerView(CHAT_VIEW_TYPE, (leaf) => new ChatView(leaf, this))
     this.registerView(APPLY_VIEW_TYPE, (leaf) => new ApplyView(leaf))
+
+    // --- INSIGHTS SIDEBAR ---
+    const pluginDir =
+      this.manifest.dir ??
+      `${this.app.vault.configDir}/plugins/${this.manifest.id}`
+    this.insightsStore = new InsightsStore(
+      this.app,
+      normalizePath(`${pluginDir}/insights-state.json`),
+    )
+    void this.insightsStore.load()
+    this.registerView(
+      INSIGHTS_VIEW_TYPE,
+      (leaf) => new InsightsView(leaf, this),
+    )
+    this.addCommand({
+      id: 'open-insights',
+      name: 'Open insights sidebar',
+      callback: () => {
+        void this.activateInsightsView()
+      },
+    })
+    // Keep per-note pins and dismissals attached to notes as they move.
+    this.registerEvent(
+      this.app.vault.on('rename', (file, oldPath) => {
+        if (file instanceof TFile) {
+          this.insightsStore.handleRename(oldPath, file.path)
+        }
+      }),
+    )
+    this.registerEvent(
+      this.app.vault.on('delete', (file) => {
+        if (file instanceof TFile) this.insightsStore.handleDelete(file.path)
+      }),
+    )
 
     this.addRibbonIcon('brain-circuit', `Open ${PLUGIN_NAME}`, () => {
       void this.openChatView()
@@ -1347,6 +1391,8 @@ export default class NeuralComposerPlugin extends Plugin {
       void this.mcpManager.cleanup()
       this.mcpManager = null
     }
+    void this.insightsStore?.flush()
+    this.insightsService = null
     this.docIndexService?.destroy()
     this.docIndexService = null
     this.fileExplorerDecorator?.clear()
@@ -1978,6 +2024,28 @@ export default class NeuralComposerPlugin extends Plugin {
         leaf.view.openNewChat(chatProps?.selectedBlock)
       }
     }
+  }
+
+  async activateInsightsView() {
+    const { workspace } = this.app
+    let leaf: WorkspaceLeaf | null =
+      workspace.getLeavesOfType(INSIGHTS_VIEW_TYPE)[0] ?? null
+
+    if (!leaf) {
+      leaf = workspace.getRightLeaf(false)
+      if (leaf) {
+        await leaf.setViewState({ type: INSIGHTS_VIEW_TYPE, active: true })
+      }
+    }
+    if (leaf) await workspace.revealLeaf(leaf)
+  }
+
+  getInsightsService(): InsightsService {
+    if (!this.insightsService) {
+      // Reads settings through a getter so it always sees the latest values.
+      this.insightsService = new InsightsService(this.app, () => this.settings)
+    }
+    return this.insightsService
   }
 
   async addSelectionToChat(editor: Editor, view: MarkdownView) {

@@ -32,6 +32,7 @@ Chat with your vault using a **Knowledge Graph**, not just keyword search. Neura
 | **📊 Knowledge Graph View** | Explore your graph visually in 2D or 3D. Overview mode renders all nodes; Explore mode does a BFS walk from any entity. |
 | **🌐 Remote Server** | Connect to a LightRAG instance on a NAS, VPS, or Docker container. |
 | **🤖 MCP Tools** | Expose your graph to any MCP-compatible client (Claude Desktop, etc.). |
+| **💡 Insights Sidebar** | Shows passages from the rest of your vault related to the note, and the section of it, you are reading or writing. Pin, dismiss, jump to the source, or insert a link, quote or embed. Run **Open insights sidebar** from the command palette. |
 | **🔍 Source Transparency** | Every answer includes citations `[1]` linked to the exact notes and text chunks that were used. |
 | **🔒 Local & Private** | Use Ollama for a fully offline setup, or any hosted provider you prefer. |
 
@@ -129,6 +130,7 @@ Neural Composer is designed with privacy as a core principle.
 | Destination | When | Why |
 |:---|:---|:---|
 | **Your AI provider** (OpenAI, Anthropic, Gemini, Groq, etc.) | Every chat message or ingestion | To generate responses and embeddings. Only notes you explicitly ingest or attach are sent. |
+| **Your embedding provider**, via LightRAG | While the insights sidebar is open | The text around your cursor (up to about 1,500 characters) is embedded to find related passages. Turn off "Update as you work" to search only when you press refresh. Expanding a passage sends it and that text to your chat model for the explanation. |
 | **Your local LightRAG server** (`localhost`) | Every query and ingestion | The plugin talks to a Python process on your own machine. No data leaves. |
 | **Your remote LightRAG server** | Only if you configure a remote URL | Off by default. Opt-in only. |
 

@@ -72,6 +72,14 @@ describe('parseNeuralComposerSettings', () => {
       lightRagUseRemote: false,
       lightRagWorkDir: '',
       useCustomEntityTypes: false,
+      insightsOptions: {
+        liveUpdate: true,
+        debounceMs: 1500,
+        maxResults: 5,
+        hideLinkedNotes: true,
+        excludePatterns: [],
+        createBlockIds: false,
+      },
     })
   })
 })

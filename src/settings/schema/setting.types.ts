@@ -23,6 +23,15 @@ const ragOptionsSchema = z.object({
   includePatterns: z.array(z.string()).catch([]),
 })
 
+const DEFAULT_INSIGHTS_OPTIONS = {
+  liveUpdate: true,
+  debounceMs: 1500,
+  maxResults: 5,
+  hideLinkedNotes: true,
+  excludePatterns: [] as string[],
+  createBlockIds: false,
+}
+
 /**
  * Settings Schema - VERSIÓN MAESTRA CORA 4.0
  */
@@ -133,6 +142,20 @@ export const NeuralComposerSettingsSchema = z.object({
   lightRagExcludePatterns: z.array(z.string()).catch([]),
   lightRagExcludeHiddenFiles: z.boolean().catch(true),
   // ----------------------------------
+
+  // --- INSIGHTS SIDEBAR ---
+  // Each field has its own .catch() so adding a field later does not reset
+  // the ones an existing installation has already saved.
+  insightsOptions: z
+    .object({
+      liveUpdate: z.boolean().catch(true),
+      debounceMs: z.number().catch(1500),
+      maxResults: z.number().catch(5),
+      hideLinkedNotes: z.boolean().catch(true),
+      excludePatterns: z.array(z.string()).catch([]),
+      createBlockIds: z.boolean().catch(false),
+    })
+    .catch({ ...DEFAULT_INSIGHTS_OPTIONS }),
 })
 
 export type NeuralComposerSettings = z.infer<
@@ -217,6 +240,8 @@ export const DEFAULT_SETTINGS: NeuralComposerSettings = {
 
   lightRagExcludePatterns: [],
   lightRagExcludeHiddenFiles: true,
+
+  insightsOptions: { ...DEFAULT_INSIGHTS_OPTIONS },
 }
 
 export type SettingMigration = {
